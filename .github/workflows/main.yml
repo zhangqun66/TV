@@ -21,42 +21,44 @@ jobs:
           repository: 'FongMi/media'
           path: 'media'
 
-      - name: 3. 设置 Java 17
+      - name: 3. 设置 Java 17 和 Python 3.10
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
 
-      - name: 4. 编译 Media AAR (核心驱动生成)
-        # 这里直接运行 media 项目的总编译任务，确保所有扩展模块都生成 AAR
+      - name: 4. 编译 Media AAR (驱动生成)
         run: |
           cd media
           chmod +x ./gradlew
-          # 编译 release 版本的 AAR 库
           ./gradlew assembleRelease --no-daemon
-          
-          # 创建 TV 项目的 libs 目录
           mkdir -p ../TV/app/libs
-          # 寻找并拷贝所有生成的 AAR 文件到 TV 的 libs
           find . -name "*.aar" -exec cp {} ../TV/app/libs/ \;
-          echo "检查注入的驱动文件："
+          echo "驱动文件已就绪:"
           ls ../TV/app/libs/
 
-      - name: 5. 整合并编译 TV APK
+      - name: 5. 整合并编译 TV APK (修复 Python 路径)
         run: |
           cd TV
-          # 确保开启 Media3 开关，并修复可能存在的换行问题
+          # 关键修复：显式指定 Python 可执行文件路径给 Chaquopy
+          PYTHON_PATH=$(which python3)
+          echo "python.executable=$PYTHON_PATH" >> local.properties
+          
+          # 开启 Media3 和 FFmpeg 开关
           printf "\ninclude_media3=true\ninclude_ffmpeg=true\n" >> gradle.properties
           
-          # 修改 build.gradle 确保它会读取并集成 libs 下的所有 AAR 文件
-          # 这一步是让 APK 真正包含 libmedia3ext.so 的关键
+          # 注入 AAR 引用逻辑
           sed -i '/dependencies {/a \    implementation fileTree(dir: "libs", include: ["*.aar"])' app/build.gradle
           
           chmod +x ./gradlew
-          ./gradlew assembleDebug --no-daemon
+          # 使用全量编译并忽略缓存
+          ./gradlew assembleDebug --no-daemon --refresh-dependencies
 
       - name: 6. 上传满血版 APK
         uses: actions/upload-artifact@v4
         with:
-          name: TVBox-With-Media-Drivers
+          name: TVBox-Final-Full-Version
           path: TV/app/build/outputs/apk/**/*.apk
