@@ -1,4 +1,4 @@
-name: Build-TVBox
+name: Build-TVBox-Python-Fixed
 on:
   push:
     branches: [ "main", "master" ]
@@ -8,37 +8,33 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. 检出代码
+      - name: 检出代码
         uses: actions/checkout@v4
         with:
           repository: 'FongMi/TV'
           ref: 'release'
 
-      - name: 2. 设置 Java
+      - name: 设置 Java 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: 3. 设置 Python
+      # --- 关键步骤：必须安装 Python 3.10，否则 Chaquopy 无法打包 ---
+      - name: 设置 Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: 4. 授权并编译
-        # 核心修复：chmod 必须在执行编译之前，且必须紧跟在 run 后面
+      - name: 编译并集成 Python 环境
+        # 使用 --no-daemon 确保内存充足，防止 Python 打包过程中断
         run: |
           chmod +x ./gradlew
           ./gradlew assembleDebug --no-daemon
 
-      - name: 5. 整理 APK
-        run: |
-          mkdir -p output
-          find app/build/outputs/apk/ -name "*.apk" -exec cp {} output/ \;
-
-      - name: 6. 上传 APK 产物
+      - name: 上传支持 Python/MPD 的 APK
         uses: actions/upload-artifact@v4
         with:
-          name: TVBox-Fixed-APK
-          path: output/*.apk
+          name: TVBox-Python-Support
+          path: app/build/outputs/apk/debug/*.apk
