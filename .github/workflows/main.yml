@@ -1,4 +1,4 @@
-name: Build-TVBox-With-Media-Fix
+name: Build-TVBox-Full-With-Media-AAR
 on:
   push:
     branches: [ "main", "master" ]
@@ -8,49 +8,55 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. 检出 TV 主项目
+      - name: 1. 检出 TV 主仓库
         uses: actions/checkout@v4
         with:
           repository: 'FongMi/TV'
           ref: 'release'
           path: 'TV'
 
-      - name: 2. 检出 Media 驱动项目 (关键)
+      - name: 2. 检出 Media 驱动仓库
         uses: actions/checkout@v4
         with:
           repository: 'FongMi/media'
           path: 'media'
 
-      - name: 3. 环境准备 (Java/Python/NDK)
+      - name: 3. 设置 Java 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-      
-      - name: 4. 编译 Media 驱动并生成 AAR
+
+      - name: 4. 编译 Media AAR (核心驱动生成)
+        # 这里直接运行 media 项目的总编译任务，确保所有扩展模块都生成 AAR
         run: |
           cd media
           chmod +x ./gradlew
-          # 编译出包含 MPD/FFmpeg 驱动的 AAR 
+          # 编译 release 版本的 AAR 库
           ./gradlew assembleRelease --no-daemon
-          # 将生成的 AAR 拷贝到 TV 项目的 libs 目录
+          
+          # 创建 TV 项目的 libs 目录
           mkdir -p ../TV/app/libs
+          # 寻找并拷贝所有生成的 AAR 文件到 TV 的 libs
           find . -name "*.aar" -exec cp {} ../TV/app/libs/ \;
-          ls ../TV/app/libs/ # 打印确认一下文件是否进去了
+          echo "检查注入的驱动文件："
+          ls ../TV/app/libs/
 
-      - name: 5. 注入配置并编译 TV APK
+      - name: 5. 整合并编译 TV APK
         run: |
           cd TV
-          # 确保开启了 media3 开关
+          # 确保开启 Media3 开关，并修复可能存在的换行问题
           printf "\ninclude_media3=true\ninclude_ffmpeg=true\n" >> gradle.properties
-          # 强行让 build.gradle 引用 libs 下的所有 AAR
+          
+          # 修改 build.gradle 确保它会读取并集成 libs 下的所有 AAR 文件
+          # 这一步是让 APK 真正包含 libmedia3ext.so 的关键
           sed -i '/dependencies {/a \    implementation fileTree(dir: "libs", include: ["*.aar"])' app/build.gradle
           
           chmod +x ./gradlew
           ./gradlew assembleDebug --no-daemon
 
-      - name: 6. 上传包含驱动的 APK
+      - name: 6. 上传满血版 APK
         uses: actions/upload-artifact@v4
         with:
-          name: TVBox-Full-Driver-Fixed
+          name: TVBox-With-Media-Drivers
           path: TV/app/build/outputs/apk/**/*.apk
