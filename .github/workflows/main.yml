@@ -1,4 +1,4 @@
-name: Build-TVBox-Native-Fix
+name: Build-TVBox-Ultra-Fix
 on:
   push:
     branches: [ "main", "master" ]
@@ -8,44 +8,52 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. 检出代码
+      - name: 1. 检出官方 Release 代码
         uses: actions/checkout@v4
         with:
           repository: 'FongMi/TV'
           ref: 'release'
           fetch-depth: 1
 
-      - name: 2. 设置 Java 17
+      - name: 2. 配置 Java 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: 3. 设置 Python 3.10
+      - name: 3. 配置 Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      # --- 关键步骤：配置 NDK，否则无法生成 .so 库 ---
-      - name: 4. 设置 NDK 环境
-        uses: android-actions/setup-android@v3
-        with:
-          ndk-version: '25.2.9519653' # 使用 Media3 推荐的稳定 NDK 版本
+      - name: 4. 强制注入 MPD 与原生库配置
+        # 这里通过 sed 命令直接修改项目属性，强制开启所有解码器扩展
+        run: |
+          # 确保 gradle.properties 中开启了相关扩展
+          echo "include_media3=true" >> gradle.properties
+          echo "include_ffmpeg=true" >> gradle.properties
+          
+          # 暴力修改 app/build.gradle，确保 DASH 依赖被包含
+          FILE="app/build.gradle"
+          if [ -f "$FILE" ]; then
+            sed -i '/dependencies {/a \    implementation "androidx.media3:media3-exoplayer-dash:1.1.0"' "$FILE"
+            sed -i '/dependencies {/a \    implementation "androidx.media3:media3-ui:1.1.0"' "$FILE"
+          fi
 
-      - name: 5. 强制全量编译 (含原生库)
-        # 增加 --refresh-dependencies 确保拉取所有解码组件
+      - name: 5. 授权并执行深度编译
+        # 使用 --refresh-dependencies 强制云端下载丢失的 .so 预编译库
         run: |
           chmod +x ./gradlew
           ./gradlew assembleDebug --no-daemon --refresh-dependencies
 
-      - name: 6. 整理并上传
+      - name: 6. 整理并扫描 APK
         run: |
           mkdir -p output
           find app/build/outputs/apk/ -name "*.apk" -exec cp {} output/ \;
 
-      - name: 7. 发布
+      - name: 7. 上传最终产物
         uses: actions/upload-artifact@v4
         with:
-          name: TVBox-Native-Full
+          name: TVBox-Ultra-Fixed
           path: output/*.apk
