@@ -11,11 +11,10 @@ jobs:
       contents: write
 
     steps:
-      - name: 检出 Release 分支代码
+      - name: 检出代码
         uses: actions/checkout@v4
         with:
-          # 关键：强制拉取上游 FongMi 的 release 分支
-          repository: 'FongMi/TV' 
+          repository: 'FongMi/TV'
           ref: 'release'
           fetch-depth: 1
 
@@ -34,6 +33,23 @@ jobs:
       - name: 优化 Gradle 环境
         run: |
           mkdir -p ~/.gradle
+          echo "org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8" >> ~/.gradle/gradle.properties
+          chmod +x gradlew
+
+      - name: 编译 APK
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: 整理文件
+        if: success()
+        run: |
+          mkdir -p release_files
+          find app/build/outputs/apk/ -name "*.apk" -exec cp {} release_files/ \;
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: TVBox-Release-Build
+          path: release_files/*.apk
           echo "org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8" >> ~/.gradle/gradle.properties
           chmod +x gradlew
 
