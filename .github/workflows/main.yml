@@ -1,4 +1,4 @@
-name: Build-TVBox-Safe-Fix
+name: Build-TVBox-Custom-AAR-Fix
 on:
   push:
     branches: [ "main", "master" ]
@@ -8,49 +8,49 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. 检出代码
+      - name: 1. 检出 FongMi/TV 代码
         uses: actions/checkout@v4
         with:
           repository: 'FongMi/TV'
           ref: 'release'
           fetch-depth: 1
 
-      - name: 2. 配置 Java 17
+      - name: 2. 配置 Java 17 和 Python
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: 'gradle'
-
+      
       - name: 3. 配置 Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: 4. 安全注入配置 (修复换行问题)
+      - name: 4. 强制启用 Media3 属性
         run: |
-          # 使用 printf 确保从新的一行开始追加，避免粘连
           printf "\ninclude_media3=true\ninclude_ffmpeg=true\n" >> gradle.properties
-          
-          # 检查并注入 Media3 DASH 依赖
-          FILE="app/build.gradle"
-          if [ -f "$FILE" ]; then
-            # 在 dependencies 块的第一行插入依赖
-            sed -i '/dependencies {/a \    implementation "androidx.media3:media3-exoplayer-dash:1.1.0"' "$FILE"
-          fi
 
-      - name: 5. 授权并执行编译
+      - name: 5. 处理自定义 AAR (关键步骤)
+        # 如果项目里有 libs 目录，我们确保它被 Gradle 识别
+        # 如果你有已经编译好的自定义 AAR 链接，可以用 curl 下载到 app/libs/
+        run: |
+          mkdir -p app/libs
+          # 提示：如果别人给了你特定的 AAR 下载链接，请在这里使用 curl 下载
+          # 例如: curl -L "https://example.com/media3-custom.aar" -o app/libs/media3-custom.aar
+
+      - name: 6. 编译 APK
+        # 使用 --refresh-dependencies 确保如果 AAR 已在本地，能被正确引用
         run: |
           chmod +x ./gradlew
           ./gradlew assembleDebug --no-daemon --refresh-dependencies
 
-      - name: 6. 整理 APK
+      - name: 7. 整理并上传产物
         run: |
           mkdir -p output
           find app/build/outputs/apk/ -name "*.apk" -exec cp {} output/ \;
 
-      - name: 7. 上传产物
+      - name: 8. 发布
         uses: actions/upload-artifact@v4
         with:
-          name: TVBox-Media3-Fixed
+          name: TVBox-AAR-Fixed
           path: output/*.apk
