@@ -7,7 +7,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # 增加权限设置，确保可以发布 release
     permissions:
       contents: write
 
@@ -15,7 +14,7 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1 # 只拉取最新提交，加快速度
+          fetch-depth: 1
 
       - name: 设置 Java 17
         uses: actions/setup-java@v4
@@ -24,16 +23,34 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: 优化 Gradle 内存与环境
+      # --- 关键修复：安装 Python 3.10 ---
+      - name: 设置 Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: 优化 Gradle 环境
         run: |
           mkdir -p ~/.gradle
-          # 限制守护进程内存，防止 GitHub Runner (7GB) 内存溢出
-          echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8" >> ~/.gradle/gradle.properties
-          # 授予执行权限
+          echo "org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8" >> ~/.gradle/gradle.properties
           chmod +x gradlew
 
-      - name: 编译 Debug 版本 (跳过签名检查)
-        # 优化点：使用 assembleDebug 避免签名报错
+      - name: 编译 APK
+        # 使用 assembleDebug 避开签名问题
+        # 添加 --no-daemon 减少内存占用
+        run: ./gradlew assembleDebug -x lint -x test --no-daemon
+
+      - name: 整理 APK 文件
+        if: success()
+        run: |
+          mkdir -p release_files
+          find app/build/outputs/apk/ -name "*.apk" -exec cp {} release_files/ \;
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: TVBox-Debug
+          path: release_files/*.apk
         # 优化点：-x lint 和 -x test 跳过无用检查，节省 3-5 分钟
         run: ./gradlew assembleDebug -x lint -x test --stacktrace
 
