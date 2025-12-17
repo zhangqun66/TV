@@ -23,7 +23,6 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      # --- 关键修复：安装 Python 3.10 ---
       - name: 设置 Python 3.10
         uses: actions/setup-python@v5
         with:
@@ -34,6 +33,21 @@ jobs:
           mkdir -p ~/.gradle
           echo "org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8" >> ~/.gradle/gradle.properties
           chmod +x gradlew
+
+      - name: 编译 APK
+        run: ./gradlew assembleDebug -x lint -x test --no-daemon
+
+      - name: 整理 APK 文件
+        if: success()
+        run: |
+          mkdir -p release_files
+          find app/build/outputs/apk/ -name "*.apk" -exec cp {} release_files/ \;
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: TVBox-Debug
+          path: release_files/*.apk
 
       - name: 编译 APK
         # 使用 assembleDebug 避开签名问题
