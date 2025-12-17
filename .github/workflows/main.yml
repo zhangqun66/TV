@@ -1,4 +1,4 @@
-name: Build-TVBox-Custom-AAR-Fix
+name: Build-TVBox-With-Media-Fix
 on:
   push:
     branches: [ "main", "master" ]
@@ -8,49 +8,49 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. 检出 FongMi/TV 代码
+      - name: 1. 检出 TV 主项目
         uses: actions/checkout@v4
         with:
           repository: 'FongMi/TV'
           ref: 'release'
-          fetch-depth: 1
+          path: 'TV'
 
-      - name: 2. 配置 Java 17 和 Python
+      - name: 2. 检出 Media 驱动项目 (关键)
+        uses: actions/checkout@v4
+        with:
+          repository: 'FongMi/media'
+          path: 'media'
+
+      - name: 3. 环境准备 (Java/Python/NDK)
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
       
-      - name: 3. 配置 Python 3.10
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: 4. 强制启用 Media3 属性
+      - name: 4. 编译 Media 驱动并生成 AAR
         run: |
-          printf "\ninclude_media3=true\ninclude_ffmpeg=true\n" >> gradle.properties
-
-      - name: 5. 处理自定义 AAR (关键步骤)
-        # 如果项目里有 libs 目录，我们确保它被 Gradle 识别
-        # 如果你有已经编译好的自定义 AAR 链接，可以用 curl 下载到 app/libs/
-        run: |
-          mkdir -p app/libs
-          # 提示：如果别人给了你特定的 AAR 下载链接，请在这里使用 curl 下载
-          # 例如: curl -L "https://example.com/media3-custom.aar" -o app/libs/media3-custom.aar
-
-      - name: 6. 编译 APK
-        # 使用 --refresh-dependencies 确保如果 AAR 已在本地，能被正确引用
-        run: |
+          cd media
           chmod +x ./gradlew
-          ./gradlew assembleDebug --no-daemon --refresh-dependencies
+          # 编译出包含 MPD/FFmpeg 驱动的 AAR 
+          ./gradlew assembleRelease --no-daemon
+          # 将生成的 AAR 拷贝到 TV 项目的 libs 目录
+          mkdir -p ../TV/app/libs
+          find . -name "*.aar" -exec cp {} ../TV/app/libs/ \;
+          ls ../TV/app/libs/ # 打印确认一下文件是否进去了
 
-      - name: 7. 整理并上传产物
+      - name: 5. 注入配置并编译 TV APK
         run: |
-          mkdir -p output
-          find app/build/outputs/apk/ -name "*.apk" -exec cp {} output/ \;
+          cd TV
+          # 确保开启了 media3 开关
+          printf "\ninclude_media3=true\ninclude_ffmpeg=true\n" >> gradle.properties
+          # 强行让 build.gradle 引用 libs 下的所有 AAR
+          sed -i '/dependencies {/a \    implementation fileTree(dir: "libs", include: ["*.aar"])' app/build.gradle
+          
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon
 
-      - name: 8. 发布
+      - name: 6. 上传包含驱动的 APK
         uses: actions/upload-artifact@v4
         with:
-          name: TVBox-AAR-Fixed
-          path: output/*.apk
+          name: TVBox-Full-Driver-Fixed
+          path: TV/app/build/outputs/apk/**/*.apk
