@@ -1,4 +1,4 @@
-name: Build TVBox Optimized
+name: Build TVBox with MPD Fix
 on:
   push:
     branches: [ "main", "master" ]
@@ -13,20 +13,32 @@ jobs:
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
 
-      - name: 设置 Java 17
+      - name: 设置 Java & Python
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
           cache: 'gradle'
-
+      
       - name: 设置 Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+
+      - name: 自动修复 MPD 播放依赖 (Inject DASH Support)
+        run: |
+          # 定位 app 模块的 build.gradle
+          FILE="app/build.gradle"
+          if [ -f "$FILE" ]; then
+            # 检查是否包含 dash 依赖，如果没有则注入
+            if ! grep -q "exoplayer-dash" "$FILE" && ! grep -q "media3-exoplayer-dash" "$FILE"; then
+              echo "检测到缺少 MPD 支持，正在注入依赖..."
+              # 在 dependencies 代码块中插入 media3-exoplayer-dash
+              sed -i '/dependencies {/a \    implementation "androidx.media3:media3-exoplayer-dash:1.1.0"' "$FILE"
+              echo "注入完成。"
+            fi
+          fi
 
       - name: 优化 Gradle 环境
         run: |
@@ -37,14 +49,14 @@ jobs:
       - name: 编译 APK
         run: ./gradlew assembleDebug -x lint -x test --no-daemon
 
-      - name: 整理 APK 文件
+      - name: 整理并上传
         if: success()
         run: |
           mkdir -p release_files
           find app/build/outputs/apk/ -name "*.apk" -exec cp {} release_files/ \;
-
+      
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: TVBox-Debug
+          name: TVBox-MPD-Fixed
           path: release_files/*.apk
