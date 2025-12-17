@@ -1,4 +1,4 @@
-name: Build-TVBox-Ultra-Fix
+name: Build-TVBox-Safe-Fix
 on:
   push:
     branches: [ "main", "master" ]
@@ -8,7 +8,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. 检出官方 Release 代码
+      - name: 1. 检出代码
         uses: actions/checkout@v4
         with:
           repository: 'FongMi/TV'
@@ -27,33 +27,30 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: 4. 强制注入 MPD 与原生库配置
-        # 这里通过 sed 命令直接修改项目属性，强制开启所有解码器扩展
+      - name: 4. 安全注入配置 (修复换行问题)
         run: |
-          # 确保 gradle.properties 中开启了相关扩展
-          echo "include_media3=true" >> gradle.properties
-          echo "include_ffmpeg=true" >> gradle.properties
+          # 使用 printf 确保从新的一行开始追加，避免粘连
+          printf "\ninclude_media3=true\ninclude_ffmpeg=true\n" >> gradle.properties
           
-          # 暴力修改 app/build.gradle，确保 DASH 依赖被包含
+          # 检查并注入 Media3 DASH 依赖
           FILE="app/build.gradle"
           if [ -f "$FILE" ]; then
+            # 在 dependencies 块的第一行插入依赖
             sed -i '/dependencies {/a \    implementation "androidx.media3:media3-exoplayer-dash:1.1.0"' "$FILE"
-            sed -i '/dependencies {/a \    implementation "androidx.media3:media3-ui:1.1.0"' "$FILE"
           fi
 
-      - name: 5. 授权并执行深度编译
-        # 使用 --refresh-dependencies 强制云端下载丢失的 .so 预编译库
+      - name: 5. 授权并执行编译
         run: |
           chmod +x ./gradlew
           ./gradlew assembleDebug --no-daemon --refresh-dependencies
 
-      - name: 6. 整理并扫描 APK
+      - name: 6. 整理 APK
         run: |
           mkdir -p output
           find app/build/outputs/apk/ -name "*.apk" -exec cp {} output/ \;
 
-      - name: 7. 上传最终产物
+      - name: 7. 上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: TVBox-Ultra-Fixed
+          name: TVBox-Media3-Fixed
           path: output/*.apk
