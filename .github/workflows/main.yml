@@ -46,6 +46,18 @@ jobs:
         with:
           name: TVBox-Fixed
           path: output/*.apk
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: 整理文件
+        run: |
+          mkdir -p output
+          find app/build/outputs/apk/ -name "*.apk" -exec cp {} output/ \;
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: TVBox-Fixed
+          path: output/*.apk
       - name: Build
         run: ./gradlew assembleDebug --no-daemon
 
