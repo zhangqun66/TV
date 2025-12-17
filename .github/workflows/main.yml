@@ -7,182 +7,35 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-      - name: 检出代码
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           repository: 'FongMi/TV'
           ref: 'release'
-          fetch-depth: 1
 
-      - name: 设置 Java
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: 'gradle'
 
-      - name: 设置 Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: 授予执行权限
-        run: chmod +x ./gradlew
+      - name: Build APK
+        # 我们把 chmod 和编译写在一起，用 && 连接，这样最稳妥
+        run: chmod +x ./gradlew && ./gradlew assembleDebug --no-daemon
 
-      - name: 编译 APK
-        run: ./gradlew assembleDebug --no-daemon
-
-      - name: 整理文件
-        run: mkdir -p output && find app/build/outputs/apk/ -name "*.apk" -exec cp {} output/ \;
-
-      - name: 上传产物
-        uses: actions/upload-artifact@v4
-        with:
-          name: TVBox-Fixed-Build
-          path: output/*.apk
-        run: ./gradlew assembleDebug --no-daemon
-
-      - name: 整理文件
+      - name: Collect APK
         run: |
           mkdir -p output
           find app/build/outputs/apk/ -name "*.apk" -exec cp {} output/ \;
 
-      - name: 上传产物
-        uses: actions/upload-artifact@v4
-        with:
-          name: TVBox-Fixed
-          path: output/*.apk
-        run: ./gradlew assembleDebug --no-daemon
-
-      - name: 整理文件
-        run: |
-          mkdir -p output
-          find app/build/outputs/apk/ -name "*.apk" -exec cp {} output/ \;
-
-      - name: 上传产物
-        uses: actions/upload-artifact@v4
-        with:
-          name: TVBox-Fixed
-          path: output/*.apk
-      - name: Build
-        run: ./gradlew assembleDebug --no-daemon
-
-      - name: Collect
-        run: |
-          mkdir -p output
-          find app/build/outputs/apk/ -name "*.apk" -exec cp {} output/ \;
-
-      - name: Upload
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: TVBox-Release
           path: output/*.apk
-      - name: Build
-        run: ./gradlew assembleDebug --no-daemon
-
-      - name: Collect
-        run: |
-          mkdir -p output
-          find app/build/outputs/apk/ -name "*.apk" -exec cp {} output/ \;
-
-      - name: Upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: TVBox-Release
-          path: output/*.apk
-
-      - name: Build
-        run: ./gradlew assembleDebug --no-daemon
-
-      - name: Collect
-        run: |
-          mkdir -p release_files
-          find app/build/outputs/apk/ -name "*.apk" -exec cp {} release_files/ \;
-
-      - name: Upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: TVBox-Release-Build
-          path: release_files/*.apk
-          chmod +x gradlew
-
-      - name: 编译 APK
-        run: ./gradlew assembleDebug --no-daemon
-
-      - name: 整理文件
-        if: success()
-        run: |
-          mkdir -p release_files
-          find app/build/outputs/apk/ -name "*.apk" -exec cp {} release_files/ \;
-
-      - name: 上传产物
-        uses: actions/upload-artifact@v4
-        with:
-          name: TVBox-Release-Build
-          path: release_files/*.apk
-          echo "org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8" >> ~/.gradle/gradle.properties
-          chmod +x gradlew
-
-      - name: 编译 APK (Debug 版)
-        # release 分支的代码已经很完善，直接编译即可
-        run: ./gradlew assembleDebug --no-daemon
-
-      - name: 整理 APK 文件
-        if: success()
-        run: |
-          mkdir -p release_files
-          find app/build/outputs/apk/ -name "*.apk" -exec cp {} release_files/ \;
-
-      - name: 上传产物
-        uses: actions/upload-artifact@v4
-        with:
-          name: TVBox-Release-Branch-Build
-          path: release_files/*.apk
-          mkdir -p ~/.gradle
-          echo "org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8" >> ~/.gradle/gradle.properties
-          chmod +x gradlew
-
-      - name: 编译 APK (Debug 版)
-        # release 分支的代码已经很完善，直接编译即可
-        run: ./gradlew assembleDebug --no-daemon
-
-      - name: 整理 APK 文件
-        if: success()
-        run: |
-          mkdir -p release_files
-          find app/build/outputs/apk/ -name "*.apk" -exec cp {} release_files/ \;
-
-      - name: 上传产物
-        uses: actions/upload-artifact@v4
-        with:
-          name: TVBox-Release-Branch-Build
-          path: release_files/*.apk
-              # 在 dependencies 代码块中插入 media3-exoplayer-dash
-              sed -i '/dependencies {/a \    implementation "androidx.media3:media3-exoplayer-dash:1.1.0"' "$FILE"
-              echo "注入完成。"
-            fi
-          fi
-
-      - name: 优化 Gradle 环境
-        run: |
-          mkdir -p ~/.gradle
-          echo "org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8" >> ~/.gradle/gradle.properties
-          chmod +x gradlew
-
-      - name: 编译 APK
-        run: ./gradlew assembleDebug -x lint -x test --no-daemon
-
-      - name: 整理并上传
-        if: success()
-        run: |
-          mkdir -p release_files
-          find app/build/outputs/apk/ -name "*.apk" -exec cp {} release_files/ \;
-      
-      - name: 上传产物
-        uses: actions/upload-artifact@v4
-        with:
-          name: TVBox-MPD-Fixed
-          path: release_files/*.apk
