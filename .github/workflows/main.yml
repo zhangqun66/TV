@@ -10,30 +10,42 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout
+      - name: 检出代码
         uses: actions/checkout@v4
         with:
           repository: 'FongMi/TV'
           ref: 'release'
           fetch-depth: 1
 
-      - name: Java
+      - name: 设置 Java
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: Python
+      - name: 设置 Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Prepare
-        run: |
-          chmod +x gradlew
-          echo "org.gradle.jvmargs=-Xmx4g" >> gradle.properties
+      - name: 授予执行权限
+        # 注意：run 下方的这一行必须缩进 10 个空格（相对于最左边）
+        run: chmod +x gradlew
 
+      - name: 编译 APK
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: 整理文件
+        run: |
+          mkdir -p output
+          find app/build/outputs/apk/ -name "*.apk" -exec cp {} output/ \;
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: TVBox-Fixed
+          path: output/*.apk
       - name: Build
         run: ./gradlew assembleDebug --no-daemon
 
