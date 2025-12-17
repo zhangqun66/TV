@@ -1,4 +1,4 @@
-name: Build TVBox Release Branch
+name: Build-TVBox
 on:
   push:
     branches: [ "main", "master" ]
@@ -9,31 +9,45 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-
     steps:
-      - name: 检出代码
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           repository: 'FongMi/TV'
           ref: 'release'
           fetch-depth: 1
 
-      - name: 设置 Java 17
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: 设置 Python 3.10
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: 优化 Gradle 环境
+      - name: Prepare
         run: |
+          chmod +x gradlew
           mkdir -p ~/.gradle
-          echo "org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8" >> ~/.gradle/gradle.properties
+          echo "org.gradle.jvmargs=-Xmx4g" >> ~/.gradle/gradle.properties
+
+      - name: Build
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Collect
+        run: |
+          mkdir -p release_files
+          find app/build/outputs/apk/ -name "*.apk" -exec cp {} release_files/ \;
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: TVBox-Release-Build
+          path: release_files/*.apk
           chmod +x gradlew
 
       - name: 编译 APK
