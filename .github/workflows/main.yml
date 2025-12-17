@@ -52,6 +52,25 @@ jobs:
         with:
           name: TVBox-Release-Branch-Build
           path: release_files/*.apk
+          mkdir -p ~/.gradle
+          echo "org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8" >> ~/.gradle/gradle.properties
+          chmod +x gradlew
+
+      - name: 编译 APK (Debug 版)
+        # release 分支的代码已经很完善，直接编译即可
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: 整理 APK 文件
+        if: success()
+        run: |
+          mkdir -p release_files
+          find app/build/outputs/apk/ -name "*.apk" -exec cp {} release_files/ \;
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: TVBox-Release-Branch-Build
+          path: release_files/*.apk
               # 在 dependencies 代码块中插入 media3-exoplayer-dash
               sed -i '/dependencies {/a \    implementation "androidx.media3:media3-exoplayer-dash:1.1.0"' "$FILE"
               echo "注入完成。"
