@@ -1,57 +1,81 @@
-name: Build TVBox with Media Source
-
+name: Build-TVBox-Force-Inject-So
 on:
-  workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [ "main", "master" ]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      # 1️⃣ Checkout TVBox
-      - name: Checkout TVBox
+      - name: 1. 检出仓库
         uses: actions/checkout@v4
         with:
-          path: tv
-
-      # 2️⃣ Checkout Media 源码（同级）
-      - name: Checkout Media
-        uses: actions/checkout@v4
+          repository: 'FongMi/TV'
+          ref: 'release'
+          path: 'TV'
+      - uses: actions/checkout@v4
         with:
-          repository: zhangqun66/media
-          path: media
+          repository: 'zhangqun66/media'
+          path: 'media'
 
-      # 3️⃣ 设置 JDK 17
-      - name: Set up JDK 17
+      - name: 2. 环境准备 (Java 17 & Python 3.10)
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: 17
+          java-version: '17'
+          distribution: 'temurin'
+      - name: 设置 Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
 
-      # 4️⃣ 确保 gradlew 可执行
-      - name: Make gradlew executable
-        working-directory: tv
-        run: chmod +x gradlew
-
-      # 5️⃣ Gradle projects check（可选，确认 media 被正确引入）
-      - name: Gradle projects check
-        working-directory: tv
-        run: ./gradlew projects
-
-      # 6️⃣ 编译 TVBox（Release）
-      - name: Build TVBox
-        working-directory: tv
-        env:
-          GRADLE_OPTS: -Xmx4g
+      - name: 3. 编译 Media 并提取 64 位驱动
         run: |
-          chmod +x gradlew
-          ./gradlew clean assembleRelease --refresh-dependencies --stacktrace
+          cd media
+          chmod +x ./gradlew
+          ./gradlew assembleRelease --no-daemon
+          
+          mkdir -p ../so_files/lib/arm64-v8a/
+          
+          # 提取并重命名驱动（确保名称与 TV 项目代码调用的名称一致）
+          find . -name "*-release.aar" -exec unzip -o {} -d temp_extract \;
+          find temp_extract -name "*.so" -path "*/arm64-v8a/*" -exec cp {} ../so_files/lib/arm64-v8a/ \;
+          
+          echo "✅ 准备注入的驱动列表："
+          ls -R ../so_files/
 
-      # 7️⃣ 上传 APK
-      - name: Upload APK
+      - name: 4. 修复 TV 项目配置
+        run: |
+          cd TV
+          PYTHON_EXE=$(which python3)
+          echo "python.executable=$PYTHON_EXE" > local.properties
+          printf "\ninclude_media3=true\ninclude_ffmpeg=true\ninclude_dash=true\n" >> gradle.properties
+          
+          # 强制对齐版本，防止 ClassNotFound
+          sed -i 's/media3Version = .*/media3Version = "1.1.0"/g' ../build.gradle || true
+
+      - name: 5. 正常编译 APK
+        run: |
+          cd TV
+          chmod +x ./gradlew
+          ./gradlew assembleLeanbackArm64_v8aDebug --no-daemon
+
+      - name: 6. 【核心步骤】暴力注入 .so 到已生成的 APK
+        run: |
+          APK_PATH=$(find TV/app/build/outputs/apk -name "*.apk")
+          echo "目标 APK: $APK_PATH"
+          
+          # 进入驱动存放目录
+          cd so_files
+          
+          # 使用 zip 命令将 lib/ 目录强制更新/加入到 APK 中
+          # -u 是更新，-r 是递归
+          zip -ur "../$APK_PATH" lib/
+          
+          echo "✅ 暴力注入完成，已强行将驱动塞入 APK 内部。"
+
+      - name: 7. 上传“焊死”驱动的 APK
         uses: actions/upload-artifact@v4
         with:
-          name: tvbox-apk
-          path: tv/app/build/outputs/apk/**/*.apk
+          name: TVBox-Final-Injected-Arm64
+          path: TV/app/build/outputs/apk/leanback/arm64_v8a/debug/*.apk
