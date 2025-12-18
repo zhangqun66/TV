@@ -30,32 +30,33 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: 4. 编译 Media AAR (驱动生成)
+      - name: 4. 编译 Media AAR (生成 libmedia3ext.so)
         run: |
           cd media
           chmod +x ./gradlew
           ./gradlew assembleRelease --no-daemon
           mkdir -p ../TV/app/libs
-          find . -name "*.aar" -exec cp {} ../TV/app/libs/ \;
-          echo "驱动文件已就绪:"
+          # 寻找生成的多个 AAR 文件（包括 ffmpeg, dash 等模块）
+          find . -name "*-release.aar" -exec cp {} ../TV/app/libs/ \;
+          echo "驱动文件列表："
           ls ../TV/app/libs/
 
-      - name: 5. 整合并编译 TV APK (修复 Python 路径)
+      - name: 5. 整合并编译 TV APK
         run: |
           cd TV
-          # 关键修复：显式指定 Python 可执行文件路径给 Chaquopy
+          # 1. 显式配置 Python 路径，解决 Chaquopy 找不到 3.10 的报错
           PYTHON_PATH=$(which python3)
-          echo "python.executable=$PYTHON_PATH" >> local.properties
+          echo "python.executable=$PYTHON_PATH" > local.properties
           
-          # 开启 Media3 和 FFmpeg 开关
+          # 2. 开启 Media3/FFmpeg 属性
           printf "\ninclude_media3=true\ninclude_ffmpeg=true\n" >> gradle.properties
           
-          # 注入 AAR 引用逻辑
+          # 3. 注入 AAR 依赖（确保 APK 真正包含第4步生成的 so 驱动）
           sed -i '/dependencies {/a \    implementation fileTree(dir: "libs", include: ["*.aar"])' app/build.gradle
           
           chmod +x ./gradlew
-          # 使用全量编译并忽略缓存
-          ./gradlew assembleDebug --no-daemon --refresh-dependencies
+          # 4. 执行 Clean 后再编译，确保 Python 环境刷新
+          ./gradlew clean assembleDebug --no-daemon --refresh-dependencies
 
       - name: 6. 上传满血版 APK
         uses: actions/upload-artifact@v4
