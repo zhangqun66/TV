@@ -1,4 +1,4 @@
-name: Build-TVBox-Custom-Final-V4
+name: Build-TVBox-Custom-Final-V5
 on:
   push:
     branches: [ "main", "master" ]
@@ -34,41 +34,38 @@ jobs:
           chmod +x ./gradlew
           ./gradlew assembleRelease --no-daemon
           
-          # 创建 TV 项目的最高优先级原生库路径
+          # 创建 TV 项目的原生库路径
           mkdir -p ../TV/app/src/main/jniLibs/arm64-v8a
           mkdir -p ../TV/app/src/main/jniLibs/armeabi-v7a
           
-          # 提取并强行注入 so 驱动
-          echo "正在提取原生驱动并注入 jniLibs..."
+          # 提取并强行注入 .so 驱动
+          echo "正在从 AAR 中提取原生驱动并注入 jniLibs..."
           find . -name "*-release.aar" -exec unzip -o {} -d temp_extract \;
           find temp_extract -name "*.so" -path "*/arm64-v8a/*" -exec cp {} ../TV/app/src/main/jniLibs/arm64-v8a/ \;
           find temp_extract -name "*.so" -path "*/armeabi-v7a/*" -exec cp {} ../TV/app/src/main/jniLibs/armeabi-v7a/ \;
           
-          # 同时也把 AAR 拷贝过去，但主要靠 jniLibs 覆盖
+          # 【关键修正】只拷贝核心 AAR，排除 lib-ui 和 lib-exoplayer-ima
+          # 这样就不会与官方远程库产生类重复冲突
           mkdir -p ../TV/app/libs
-          find . -name "*-release.aar" -exec cp {} ../TV/app/libs/ \;
+          find . -name "*-release.aar" ! -name "lib-ui-release.aar" ! -name "*ima*" -exec cp {} ../TV/app/libs/ \;
+          
           echo "注入完成，当前 jniLibs 结构："
           ls -R ../TV/app/src/main/jniLibs/
 
-      - name: 4. 整合编译 (修正 Gradle 语法与类缺失)
+      - name: 4. 整合编译
         run: |
           cd TV
-          # 修复 Python 路径
           echo "python.executable=$(which python3)" > local.properties
-          
-          # 开启驱动开关
           printf "\ninclude_media3=true\ninclude_ffmpeg=true\n" >> gradle.properties
           
           FILE="app/build.gradle"
-          # 1. 引入本地编译的 AAR 
+          # 引入我们刚才精挑细选的本地 AAR
           sed -i '/dependencies {/a \    implementation fileTree(dir: "libs", include: ["*.aar"])' "$FILE"
           
-          # 2. 补回基础资源库
+          # 补回 Google 基础资源库
           sed -i '/dependencies {/a \    implementation "com.google.android.gms:play-services-basement:18.3.0"' "$FILE"
           
-          # 3. 【核心改动】不再删除官方引用，也不使用 resolutionStrategy 
-          # 我们直接开启 failOnDuplicateConfigurations = false (放宽检查)
-          # 这样官方库提供的 Hls 类会保留，而你注入到 jniLibs 的 so 会在运行时被优先加载
+          # 声明优先级，确保 jniLibs 里的 so 被打入 APK
           printf "\nandroid {\n    packagingOptions {\n        pickFirst 'lib/*/libmedia3ext.so'\n        pickFirst 'lib/*/libffmpeg.so'\n        pickFirst '**/libc++_shared.so'\n    }\n}\n" >> "$FILE"
           
           chmod +x ./gradlew
@@ -77,5 +74,5 @@ jobs:
       - name: 5. 上传 APK
         uses: actions/upload-artifact@v4
         with:
-          name: TVBox-Full-Full-Edition
+          name: TVBox-Final-Success-Edition
           path: TV/app/build/outputs/apk/**/*.apk
