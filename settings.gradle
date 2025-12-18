@@ -5,6 +5,7 @@ pluginManagement {
         google()
     }
 }
+
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
@@ -18,8 +19,24 @@ dependencyResolutionManagement {
         }
     }
 }
+
+/**
+ * ===== AndroidX Media3 源码引入（关键）=====
+ */
+
+// media3 模块名前缀（必须）
+gradle.ext.androidxMediaModulePrefix = "media3-"
+
+// 引入 media 源码工程
+// ⚠️ 要求 media 和 tv 是同级目录
+apply from: file("../media/core_settings.gradle")
+
+/**
+ * ===== TVBox 原有模块 =====
+ */
 include ':app'
 include ':catvod'
 include ':chaquo'
 include ':quickjs'
+
 rootProject.name = "TV"
