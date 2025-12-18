@@ -39,35 +39,36 @@ jobs:
           AAR_FILES=$(find . -name "*-release.aar")
           for aar in $AAR_FILES; do
             cp "$aar" ../TV/app/libs/
+            echo "✅ 已拷贝驱动: $(basename $aar)"
           done
 
-      - name: 5. 整合并编译 TV APK (修复资源缺失)
+      - name: 5. 整合并编译 TV APK (修复资源与语法)
         run: |
           cd TV
+          # 1. 修复 Python 路径
           PYTHON_PATH=$(which python3)
           echo "python.executable=$PYTHON_PATH" > local.properties
+          
+          # 2. 开启核心开关
           printf "\ninclude_media3=true\ninclude_ffmpeg=true\n" >> gradle.properties
           
+          # 3. 注入依赖与资源补丁
           FILE="app/build.gradle"
           if [ -f "$FILE" ]; then
-            # 1. 引入本地 AAR
+            # 引入本地 AAR
             sed -i '/dependencies {/a \    implementation fileTree(dir: "libs", include: ["*.aar"])' "$FILE"
-            
-            # 2. 补回被排除掉的 Google Play 服务基础资源 (修复 AAPT 报错的关键)
+            # 补全 Google Play Services 资源，修复上次的 AAPT 报错
             sed -i '/dependencies {/a \    implementation "com.google.android.gms:play-services-basement:18.3.0"' "$FILE"
             
-            # 3. 这里的策略改为：不再使用 exclude group，而是通过 resolutionStrategy 处理冲突
-            # 这种方式比强制 exclude 更安全，不会导致资源丢失
-            cat <<EOF >> "$FILE"
-configurations.all {
-    resolutionStrategy {
-        // 遇到重复类时，优先使用本地版本 (你编译的版本)
-        forcedModules = ['androidx.media3:media3-common:1.1.0'] 
-        failOnDuplicateConfigurations = false
-    }
-}
-EOF
+            # 4. 写入冲突解决策略 (使用 printf 避免 EOF 语法错误)
+            printf "\nandroid {\n    configurations.all {\n        resolutionStrategy {\n            forcedModules = ['androidx.media3:media3-common:1.1.0']\n            failOnDuplicateConfigurations = false\n        }\n    }\n}\n" >> "$FILE"
           fi
           
           chmod +x ./gradlew
           ./gradlew clean assembleDebug --no-daemon
+
+      - name: 6. 上传成果物
+        uses: actions/upload-artifact@v4
+        with:
+          name: TVBox-Final-Fix
+          path: TV/app/build/outputs/apk/**/*.apk
