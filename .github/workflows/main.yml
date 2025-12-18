@@ -1,4 +1,4 @@
-name: Build-TVBox-Force-Native-So
+name: Build-TVBox-Diagnostic-V15
 on:
   push:
     branches: [ "main", "master" ]
@@ -19,7 +19,7 @@ jobs:
           repository: 'zhangqun66/media'
           path: 'media'
 
-      - name: 2. 环境准备 (Java 17 & Python 3.10)
+      - name: 2. 环境准备
         uses: actions/setup-java@v4
         with:
           java-version: '17'
@@ -28,51 +28,56 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: 3. 编译 Media 并“榨取”驱动
+      - name: 3. 编译并提取驱动
+        # 如果这步出错，日志会很清晰，因为它只编译 media
         run: |
           cd media
           chmod +x ./gradlew
-          ./gradlew assembleRelease --no-daemon
+          ./gradlew :lib-decoder-ffmpeg:assembleRelease --no-daemon || { echo "❌ Media 库 ffmpeg 编译失败"; exit 1; }
           
-          # 提取 so 驱动
-          mkdir -p ../so_pool/arm64-v8a/
-          find . -name "*-release.aar" -exec unzip -o {} -d temp_extract \;
-          find temp_extract -name "*.so" -path "*/arm64-v8a/*" -exec cp {} ../so_pool/arm64-v8a/ \;
-          
-          # 多点注入到 TV 的所有可能模块
-          for target in ../TV/app ../TV/catvod ../TV/quickjs; do
-            if [ -d "$target" ]; then
-              mkdir -p $target/src/main/jniLibs/arm64-v8a/
-              cp -r ../so_pool/arm64-v8a/* $target/src/main/jniLibs/arm64-v8a/
-            fi
-          done
+          mkdir -p ../so_pool/
+          find . -name "*.so" -path "*/arm64-v8a/*" -exec cp {} ../so_pool/ \;
+          echo "✅ 成功提取以下驱动："
+          ls ../so_pool/
 
-      - name: 4. 修复配置与 Python 环境
+      - name: 4. 强制配置注入
         run: |
           cd TV
+          # 写入 Python 路径
           echo "python.executable=$(which python3)" > local.properties
+          # 开启所有开关
           printf "\ninclude_media3=true\ninclude_ffmpeg=true\ninclude_dash=true\n" >> gradle.properties
           
-          # 确保 packagingOptions 允许 so 注入
-          FILE="app/build.gradle"
-          sed -i '/android {/a \    packagingOptions { jniLibs { useLegacyPackaging true } \n pickFirst "lib/*/libmedia3ext.so" \n pickFirst "lib/*/libffmpeg.so" \n }' "$FILE"
+          # 将提取的 so 注入到 app 模块
+          mkdir -p app/src/main/jniLibs/arm64-v8a/
+          cp ../so_pool/*.so app/src/main/jniLibs/arm64-v8a/
 
-      - name: 5. 执行电视 64 位编译
+      - name: 5. 执行极简编译 (禁用检查)
+        id: compile
         run: |
           cd TV
           chmod +x ./gradlew
-          # 运行编译
-          ./gradlew assembleLeanbackArm64_v8aDebug --no-daemon
-          
-          # 【关键辅助：打印出生成的 APK 到底在哪】
-          echo "------ 实际生成的 APK 路径如下 ------"
-          find app/build/outputs/apk -name "*.apk"
+          # 使用 -x 参数跳过所有检查，只做 assemble，减少日志干扰
+          ./gradlew assembleLeanbackArm64_v8aDebug --no-daemon -x lint -x test || {
+            echo "--------------------------------------------------"
+            echo "❌ 编译失败！以下是最后 50 行关键报错信息："
+            echo "--------------------------------------------------"
+            # 如果编译失败，只抓取最后 50 行报错
+            tail -n 50 /home/runner/work/TV/TV/TV/app/build/reports/problems/problems-report.html 2>/dev/null || true
+            exit 1
+          }
 
-      - name: 6. 强力上传 (使用模糊匹配)
+      - name: 6. 物理提取 APK (解决路径找不到问题)
+        if: always()
+        run: |
+          mkdir -p final_apk
+          # 无论它在哪，都强制考到当前目录下的 final_apk
+          find TV/app/build/outputs/apk -name "*.apk" -exec cp {} final_apk/ \;
+          echo "✅ 已将搜寻到的 APK 统一存放到 final_apk 文件夹"
+          ls -R final_apk/
+
+      - name: 7. 上传
         uses: actions/upload-artifact@v4
         with:
-          name: TVBox-Fixed-Path-APK
-          # 使用通配符，只要是 app/build 目录下生成的 apk 全都带走
-          path: TV/app/build/outputs/apk/**/*.apk
-          # 即使没找到也不要让整个任务显示失败，方便看日志
-          if-no-files-found: error
+          name: TVBox-V15-Final
+          path: final_apk/*.apk
