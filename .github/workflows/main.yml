@@ -1,4 +1,4 @@
-name: Build-TVBox-Force-Native-So
+name: Build-TVBox-Custom-Final
 on:
   push:
     branches: [ "main", "master" ]
@@ -8,7 +8,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. 检出 TV 与 Media 仓库
+      - name: 1. 检出仓库
         uses: actions/checkout@v4
         with:
           repository: 'FongMi/TV'
@@ -19,7 +19,7 @@ jobs:
           repository: 'zhangqun66/media'
           path: 'media'
 
-      - name: 2. 环境设置 (Java & Python)
+      - name: 2. 环境设置
         uses: actions/setup-java@v4
         with:
           java-version: '17'
@@ -28,42 +28,39 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: 3. 编译 Media 并“暴力提取” .so 文件
+      - name: 3. 编译 Media 并“物理注入”原生库
         run: |
           cd media
           chmod +x ./gradlew
-          ./gradlew assembleRelease --no-daemon
+          ./gradlew :lib-exoplayer:assembleRelease :lib-decoder-ffmpeg:assembleRelease --no-daemon
           
-          # 创建 TV 项目的原生库目录
+          # 创建 TV 项目的原生库存放路径
           mkdir -p ../TV/app/src/main/jniLibs/arm64-v8a
           mkdir -p ../TV/app/src/main/jniLibs/armeabi-v7a
           
-          # 核心逻辑：解压生成的 AAR 并提取 .so
-          echo "正在从 AAR 中提取原生驱动 (.so)..."
+          # 提取 AAR 里的 so 文件
+          echo "正在提取原生驱动..."
           find . -name "*-release.aar" -exec unzip -o {} -d temp_extract \;
-          
-          # 将提取出的 so 拷贝到 TV 的 jniLibs
           find temp_extract -name "*.so" -path "*/arm64-v8a/*" -exec cp {} ../TV/app/src/main/jniLibs/arm64-v8a/ \;
           find temp_extract -name "*.so" -path "*/armeabi-v7a/*" -exec cp {} ../TV/app/src/main/jniLibs/armeabi-v7a/ \;
           
-          echo "✅ 提取完成，当前 jniLibs 列表:"
+          # 同时保留 AAR 作为依赖
+          mkdir -p ../TV/app/libs
+          find . -name "*-release.aar" -exec cp {} ../TV/app/libs/ \;
           ls -R ../TV/app/src/main/jniLibs/
 
-      - name: 4. 整合并打包 APK
+      - name: 4. 整合编译 (保留 UI 资源)
         run: |
           cd TV
-          # 修复 Python
           echo "python.executable=$(which python3)" > local.properties
-          
-          # 开启 Media3
           printf "\ninclude_media3=true\ninclude_ffmpeg=true\n" >> gradle.properties
           
           FILE="app/build.gradle"
-          # 删除远程引用
-          sed -i '/implementation.*androidx.media3/d' "$FILE"
+          # 精准替换：只删除会导致冲突的 core 和 common 库，保留 ui 库提供资源
+          sed -i '/implementation.*androidx.media3:media3-exoplayer/d' "$FILE"
+          sed -i '/implementation.*androidx.media3:media3-common/d' "$FILE"
           
-          # 确保 Gradle 包含 jniLibs 目录
-          # (TV 项目通常已有此配置，但我们要确保它生效)
+          # 引入本地 AAR
           sed -i '/dependencies {/a \    implementation fileTree(dir: "libs", include: ["*.aar"])' "$FILE"
           
           chmod +x ./gradlew
@@ -72,5 +69,5 @@ jobs:
       - name: 5. 上传 APK
         uses: actions/upload-artifact@v4
         with:
-          name: TVBox-With-Embedded-So
+          name: TVBox-Full-Driver-Edition
           path: TV/app/build/outputs/apk/**/*.apk
