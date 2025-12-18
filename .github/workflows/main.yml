@@ -21,7 +21,7 @@ jobs:
           repository: 'FongMi/media'
           path: 'media'
 
-      - name: 3. 设置 Java 17 和 Python 3.10
+      - name: 3. 环境准备 (Java 17 & Python 3.10)
         uses: actions/setup-java@v4
         with:
           java-version: '17'
@@ -30,36 +30,41 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: 4. 编译 Media AAR (生成 libmedia3ext.so)
+      - name: 4. 编译 Media AAR (驱动生成)
         run: |
           cd media
           chmod +x ./gradlew
           ./gradlew assembleRelease --no-daemon
           mkdir -p ../TV/app/libs
-          # 寻找生成的多个 AAR 文件（包括 ffmpeg, dash 等模块）
+          # 只拷贝核心 release 版本的 AAR
           find . -name "*-release.aar" -exec cp {} ../TV/app/libs/ \;
-          echo "驱动文件列表："
+          echo "驱动文件已就绪:"
           ls ../TV/app/libs/
 
-      - name: 5. 整合并编译 TV APK
+      - name: 5. 整合并编译 TV APK (排除冲突)
         run: |
           cd TV
-          # 1. 显式配置 Python 路径，解决 Chaquopy 找不到 3.10 的报错
+          # 修复 Python 路径
           PYTHON_PATH=$(which python3)
           echo "python.executable=$PYTHON_PATH" > local.properties
           
-          # 2. 开启 Media3/FFmpeg 属性
+          # 强制开启开关
           printf "\ninclude_media3=true\ninclude_ffmpeg=true\n" >> gradle.properties
           
-          # 3. 注入 AAR 依赖（确保 APK 真正包含第4步生成的 so 驱动）
-          sed -i '/dependencies {/a \    implementation fileTree(dir: "libs", include: ["*.aar"])' app/build.gradle
+          # 核心修复：注入 AAR 并告诉 Gradle 排除掉冲突的官方库
+          FILE="app/build.gradle"
+          if [ -f "$FILE" ]; then
+            # 1. 引入 libs 下的所有 AAR
+            sed -i '/dependencies {/a \    implementation fileTree(dir: "libs", include: ["*.aar"])' "$FILE"
+            # 2. 这里的策略是：既然有了 AAR，就通过 configurations 强制全局排除官方 media3 避免冲突
+            printf "\nconfigurations.all {\n    exclude group: 'androidx.media3'\n}\n" >> "$FILE"
+          fi
           
           chmod +x ./gradlew
-          # 4. 执行 Clean 后再编译，确保 Python 环境刷新
-          ./gradlew clean assembleDebug --no-daemon --refresh-dependencies
+          ./gradlew clean assembleDebug --no-daemon
 
       - name: 6. 上传满血版 APK
         uses: actions/upload-artifact@v4
         with:
-          name: TVBox-Final-Full-Version
+          name: TVBox-Final-No-Duplicate
           path: TV/app/build/outputs/apk/**/*.apk
