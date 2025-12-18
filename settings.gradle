@@ -1,3 +1,6 @@
+// ===============================
+// Plugin 管理
+// ===============================
 pluginManagement {
     repositories {
         gradlePluginPortal()
@@ -6,11 +9,15 @@ pluginManagement {
     }
 }
 
+// ===============================
+// 依赖仓库管理
+// ===============================
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         mavenCentral()
         google()
+        // TVBox 本地 aar / so
         flatDir { dirs "$rootDir/app/libs" }
         maven { url "https://jitpack.io" }
         maven {
@@ -20,23 +27,19 @@ dependencyResolutionManagement {
     }
 }
 
-/**
- * ===== AndroidX Media3 源码引入（关键）=====
- */
-
-// media3 模块名前缀（必须）
-gradle.ext.androidxMediaModulePrefix = "media3-"
-
-// 引入 media 源码工程
-// ⚠️ 要求 media 和 tv 是同级目录
+// ===============================
+// 引入 media 源码（关键）
+// media 与 tv 必须是同级目录
+// ===============================
 apply from: file("../media/core_settings.gradle")
 
-/**
- * ===== TVBox 原有模块 =====
- */
+// ===============================
+// TVBox 原有模块
+// ===============================
 include ':app'
 include ':catvod'
 include ':chaquo'
 include ':quickjs'
 
+// ===============================
 rootProject.name = "TV"
