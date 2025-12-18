@@ -36,39 +36,39 @@ jobs:
           chmod +x ./gradlew
           ./gradlew assembleRelease --no-daemon
           mkdir -p ../TV/app/libs
-          AAR_FILES=$(find . -name "*-release.aar")
-          for aar in $AAR_FILES; do
-            cp "$aar" ../TV/app/libs/
-            echo "✅ 已拷贝驱动: $(basename $aar)"
-          done
+          # 只拷贝那些不带 ima (广告) 且是 release 版本的 AAR，减少冲突
+          find . -name "*-release.aar" ! -name "*ima*" -exec cp {} ../TV/app/libs/ \;
+          echo "✅ 驱动已就绪:"
+          ls ../TV/app/libs/
 
-      - name: 5. 整合并编译 TV APK (修复资源与语法)
+      - name: 5. 整合并编译 TV APK (删除冲突行策略)
         run: |
           cd TV
-          # 1. 修复 Python 路径
+          # 修复 Python 路径
           PYTHON_PATH=$(which python3)
           echo "python.executable=$PYTHON_PATH" > local.properties
           
-          # 2. 开启核心开关
+          # 开启 Media3 开关
           printf "\ninclude_media3=true\ninclude_ffmpeg=true\n" >> gradle.properties
           
-          # 3. 注入依赖与资源补丁
           FILE="app/build.gradle"
           if [ -f "$FILE" ]; then
-            # 引入本地 AAR
-            sed -i '/dependencies {/a \    implementation fileTree(dir: "libs", include: ["*.aar"])' "$FILE"
-            # 补全 Google Play Services 资源，修复上次的 AAPT 报错
+            # A. 补全资源库 (解决 google_play_services_version 报错)
             sed -i '/dependencies {/a \    implementation "com.google.android.gms:play-services-basement:18.3.0"' "$FILE"
             
-            # 4. 写入冲突解决策略 (使用 printf 避免 EOF 语法错误)
-            printf "\nandroid {\n    configurations.all {\n        resolutionStrategy {\n            forcedModules = ['androidx.media3:media3-common:1.1.0']\n            failOnDuplicateConfigurations = false\n        }\n    }\n}\n" >> "$FILE"
+            # B. 引入我们刚编译的本地 AAR
+            sed -i '/dependencies {/a \    implementation fileTree(dir: "libs", include: ["*.aar"])' "$FILE"
+            
+            # C. 关键修复：从文件中直接删除掉所有包含 'androidx.media3' 的远程引用行
+            # 既然我们已经有了 AAR，就不需要 build.gradle 里再去下载远程的了
+            sed -i '/implementation.*androidx.media3/d' "$FILE"
           fi
           
           chmod +x ./gradlew
           ./gradlew clean assembleDebug --no-daemon
 
-      - name: 6. 上传成果物
+      - name: 6. 上传满血版 APK
         uses: actions/upload-artifact@v4
         with:
-          name: TVBox-Final-Fix
+          name: TVBox-Final-NoConflict
           path: TV/app/build/outputs/apk/**/*.apk
