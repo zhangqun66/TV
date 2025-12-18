@@ -1,4 +1,4 @@
-name: Build-TVBox-Custom-Reference-V8
+name: Build-TVBox-Custom-Reference-V9
 on:
   push:
     branches: [ "main", "master" ]
@@ -25,36 +25,38 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: 3. 编译 Media 并提取驱动 (.so)
-        # 这一步会从源码生成你在找的 .so 文件
+      - name: 3. 编译 Media 并提取驱动 (带重试逻辑)
         run: |
           cd media
           chmod +x ./gradlew
-          ./gradlew assembleRelease --no-daemon
           
-          # 创建 TV 项目的原生库存放路径
+          # 增加重试逻辑，防止网络超时
+          for i in {1..3}; do
+            echo "尝试编译 Media (第 $i 次)..."
+            ./gradlew assembleRelease --no-daemon --stacktrace && break || sleep 15
+          done
+          
           mkdir -p ../TV/app/src/main/jniLibs/arm64-v8a
           mkdir -p ../TV/app/src/main/jniLibs/armeabi-v7a
           
-          # 物理提取：解压 AAR 拿到 .so
+          # 提取 .so 驱动
           find . -name "*-release.aar" -exec unzip -o {} -d temp_extract \;
           find temp_extract -name "*.so" -path "*/arm64-v8a/*" -exec cp {} ../TV/app/src/main/jniLibs/arm64-v8a/ \;
           find temp_extract -name "*.so" -path "*/armeabi-v7a/*" -exec cp {} ../TV/app/src/main/jniLibs/armeabi-v7a/ \;
           
-          echo "✅ 驱动提取成功，准备注入 APK。"
+          echo "✅ 驱动提取成功。"
 
-      - name: 4. 整合编译 (修复过时配置)
+      - name: 4. 整合编译 (对齐配置)
         run: |
           cd TV
-          # 1. 设置核心配置开关
           printf "\ninclude_media3=true\ninclude_ffmpeg=true\ninclude_dash=true\n" >> gradle.properties
           
-          # 2. 修改 build.gradle：添加 pickFirst 防止冲突，并确保使用本地 AAR
           FILE="app/build.gradle"
-          # 注入解决冲突的配置
+          # 修复 packagingOptions 冲突
           sed -i '/packagingOptions {/a \        pickFirst "lib/*/libmedia3ext.so"\n        pickFirst "lib/*/libffmpeg.so"' "$FILE"
           
-          # 3. 强制对齐 media3 版本，防止 Dash 播放时 ClassNotFound
+          # 强制对齐 media3 版本，防止 Dash 播放时 ClassNotFound
+          # 如果你的参考代码里 media3Version 变量在 build.gradle(Project) 里，脚本会自动尝试修改
           sed -i 's/media3Version = .*/media3Version = "1.1.0"/g' ../build.gradle || true
 
       - name: 5. 执行编译
@@ -62,11 +64,11 @@ jobs:
           cd TV
           echo "python.executable=$(which python3)" > local.properties
           chmod +x ./gradlew
-          # 编译 Leanback Arm64 版本
+          # 编译 Arm64 版本
           ./gradlew assembleLeanbackArm64_v8aDebug --no-daemon
 
       - name: 6. 上传 APK
         uses: actions/upload-artifact@v4
         with:
-          name: TVBox-V8-Final
+          name: TVBox-V9-Stable
           path: TV/app/build/outputs/apk/**/*.apk
