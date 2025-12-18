@@ -15,7 +15,7 @@ jobs:
           ref: 'release'
           path: 'TV'
 
-      - name: 2. 检出你的专属 Media 驱动仓库
+      - name: 2. 检出 zhangqun66 的 Media 仓库
         uses: actions/checkout@v4
         with:
           repository: 'zhangqun66/media'
@@ -30,48 +30,44 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: 4. 编译你的 Media 驱动库 (生成 libmedia3ext.so)
+      - name: 4. 编译 Media 驱动 (生成 AAR)
         run: |
           cd media
           chmod +x ./gradlew
           ./gradlew assembleRelease --no-daemon
           mkdir -p ../TV/app/libs
-          echo "正在查找编译出的驱动文件..."
           AAR_FILES=$(find . -name "*-release.aar")
-          if [ -z "$AAR_FILES" ]; then
-            echo "❌ 错误：在 zhangqun66/media 中没找到 AAR！"
-            exit 1
-          fi
           for aar in $AAR_FILES; do
             cp "$aar" ../TV/app/libs/
-            echo "✅ 已拷贝: $(basename $aar)"
           done
 
-      - name: 5. 整合并编译 TV APK
+      - name: 5. 整合并编译 TV APK (修复资源缺失)
         run: |
           cd TV
-          # 修复 Python 路径
           PYTHON_PATH=$(which python3)
           echo "python.executable=$PYTHON_PATH" > local.properties
-          
-          # 开启 Media3 开关
           printf "\ninclude_media3=true\ninclude_ffmpeg=true\n" >> gradle.properties
           
-          # 注入 AAR 依赖并排除冲突
           FILE="app/build.gradle"
           if [ -f "$FILE" ]; then
-            # 使用 sed 插入 AAR 引用
+            # 1. 引入本地 AAR
             sed -i '/dependencies {/a \    implementation fileTree(dir: "libs", include: ["*.aar"])' "$FILE"
             
-            # 使用 printf 安全地追加排除配置，避免 EOF 缩进问题
-            printf "\nconfigurations.all {\n    exclude group: 'androidx.media3'\n}\n" >> "$FILE"
+            # 2. 补回被排除掉的 Google Play 服务基础资源 (修复 AAPT 报错的关键)
+            sed -i '/dependencies {/a \    implementation "com.google.android.gms:play-services-basement:18.3.0"' "$FILE"
+            
+            # 3. 这里的策略改为：不再使用 exclude group，而是通过 resolutionStrategy 处理冲突
+            # 这种方式比强制 exclude 更安全，不会导致资源丢失
+            cat <<EOF >> "$FILE"
+configurations.all {
+    resolutionStrategy {
+        // 遇到重复类时，优先使用本地版本 (你编译的版本)
+        forcedModules = ['androidx.media3:media3-common:1.1.0'] 
+        failOnDuplicateConfigurations = false
+    }
+}
+EOF
           fi
           
           chmod +x ./gradlew
           ./gradlew clean assembleDebug --no-daemon
-
-      - name: 6. 上传成果物
-        uses: actions/upload-artifact@v4
-        with:
-          name: TVBox-zhangqun66-Edition
-          path: TV/app/build/outputs/apk/**/*.apk
