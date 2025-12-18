@@ -1,4 +1,4 @@
-name: Build-TVBox-Full-With-Media-AAR
+name: Build-TVBox-Custom-Media
 on:
   push:
     branches: [ "main", "master" ]
@@ -8,17 +8,17 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. 检出 TV 主仓库
+      - name: 1. 检出 TV 主项目
         uses: actions/checkout@v4
         with:
           repository: 'FongMi/TV'
           ref: 'release'
           path: 'TV'
 
-      - name: 2. 检出 Media 驱动仓库
+      - name: 2. 检出你的专属 Media 驱动仓库
         uses: actions/checkout@v4
         with:
-          repository: 'FongMi/media'
+          repository: 'zhangqun66/media'
           path: 'media'
 
       - name: 3. 环境准备 (Java 17 & Python 3.10)
@@ -30,41 +30,59 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: 4. 编译 Media AAR (驱动生成)
+      - name: 4. 编译你的 Media 驱动库 (生成 libmedia3ext.so)
         run: |
           cd media
           chmod +x ./gradlew
+          # 编译所有模块的 Release 版本
           ./gradlew assembleRelease --no-daemon
+          
+          # 创建 TV 项目的 libs 接收目录
           mkdir -p ../TV/app/libs
-          # 只拷贝核心 release 版本的 AAR
-          find . -name "*-release.aar" -exec cp {} ../TV/app/libs/ \;
-          echo "驱动文件已就绪:"
-          ls ../TV/app/libs/
+          
+          # 验证并拷贝 AAR
+          echo "正在查找编译出的驱动文件..."
+          AAR_FILES=$(find . -name "*-release.aar")
+          if [ -z "$AAR_FILES" ]; then
+            echo "❌ 错误：在 zhangqun66/media 中没找到 AAR！请检查该仓库代码。"
+            exit 1
+          fi
+          
+          for aar in $AAR_FILES; do
+            cp "$aar" ../TV/app/libs/
+            echo "✅ 已拷贝: $(basename $aar)"
+          done
 
-      - name: 5. 整合并编译 TV APK (排除冲突)
+      - name: 5. 整合并编译 TV APK (解决冲突)
         run: |
           cd TV
           # 修复 Python 路径
           PYTHON_PATH=$(which python3)
           echo "python.executable=$PYTHON_PATH" > local.properties
           
-          # 强制开启开关
+          # 开启 Media3 开关
           printf "\ninclude_media3=true\ninclude_ffmpeg=true\n" >> gradle.properties
           
-          # 核心修复：注入 AAR 并告诉 Gradle 排除掉冲突的官方库
+          # 注入 AAR 依赖并强制排除官方冲突库
           FILE="app/build.gradle"
           if [ -f "$FILE" ]; then
-            # 1. 引入 libs 下的所有 AAR
+            # 引入刚才拷贝过来的 AAR
             sed -i '/dependencies {/a \    implementation fileTree(dir: "libs", include: ["*.aar"])' "$FILE"
-            # 2. 这里的策略是：既然有了 AAR，就通过 configurations 强制全局排除官方 media3 避免冲突
-            printf "\nconfigurations.all {\n    exclude group: 'androidx.media3'\n}\n" >> "$FILE"
+            
+            # 精准排除 androidx.media3 的官方库，确保只用 zhangqun66 编译的版本
+            cat <<EOF >> "$FILE"
+configurations.all {
+    exclude group: 'androidx.media3'
+}
+EOF
           fi
           
           chmod +x ./gradlew
+          # 执行编译
           ./gradlew clean assembleDebug --no-daemon
 
-      - name: 6. 上传满血版 APK
+      - name: 6. 上传成果物
         uses: actions/upload-artifact@v4
         with:
-          name: TVBox-Final-No-Duplicate
+          name: TVBox-zhangqun66-Edition
           path: TV/app/build/outputs/apk/**/*.apk
