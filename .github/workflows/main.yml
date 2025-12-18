@@ -1,4 +1,4 @@
-name: Build-TVBox-Force-Inject-So
+name: Build-TVBox-Force-Native-So
 on:
   push:
     branches: [ "main", "master" ]
@@ -24,58 +24,55 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-      - name: 设置 Python 3.10
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: 3. 编译 Media 并提取 64 位驱动
+      - name: 3. 编译 Media 并“榨取”驱动
         run: |
           cd media
           chmod +x ./gradlew
           ./gradlew assembleRelease --no-daemon
           
-          mkdir -p ../so_files/lib/arm64-v8a/
-          
-          # 提取并重命名驱动（确保名称与 TV 项目代码调用的名称一致）
+          # 提取 so 驱动
+          mkdir -p ../so_pool/arm64-v8a/
           find . -name "*-release.aar" -exec unzip -o {} -d temp_extract \;
-          find temp_extract -name "*.so" -path "*/arm64-v8a/*" -exec cp {} ../so_files/lib/arm64-v8a/ \;
+          find temp_extract -name "*.so" -path "*/arm64-v8a/*" -exec cp {} ../so_pool/arm64-v8a/ \;
           
-          echo "✅ 准备注入的驱动列表："
-          ls -R ../so_files/
+          # 多点注入到 TV 的所有可能模块
+          for target in ../TV/app ../TV/catvod ../TV/quickjs; do
+            if [ -d "$target" ]; then
+              mkdir -p $target/src/main/jniLibs/arm64-v8a/
+              cp -r ../so_pool/arm64-v8a/* $target/src/main/jniLibs/arm64-v8a/
+            fi
+          done
 
-      - name: 4. 修复 TV 项目配置
+      - name: 4. 修复配置与 Python 环境
         run: |
           cd TV
-          PYTHON_EXE=$(which python3)
-          echo "python.executable=$PYTHON_EXE" > local.properties
+          echo "python.executable=$(which python3)" > local.properties
           printf "\ninclude_media3=true\ninclude_ffmpeg=true\ninclude_dash=true\n" >> gradle.properties
           
-          # 强制对齐版本，防止 ClassNotFound
-          sed -i 's/media3Version = .*/media3Version = "1.1.0"/g' ../build.gradle || true
+          # 确保 packagingOptions 允许 so 注入
+          FILE="app/build.gradle"
+          sed -i '/android {/a \    packagingOptions { jniLibs { useLegacyPackaging true } \n pickFirst "lib/*/libmedia3ext.so" \n pickFirst "lib/*/libffmpeg.so" \n }' "$FILE"
 
-      - name: 5. 正常编译 APK
+      - name: 5. 执行电视 64 位编译
         run: |
           cd TV
           chmod +x ./gradlew
+          # 运行编译
           ./gradlew assembleLeanbackArm64_v8aDebug --no-daemon
+          
+          # 【关键辅助：打印出生成的 APK 到底在哪】
+          echo "------ 实际生成的 APK 路径如下 ------"
+          find app/build/outputs/apk -name "*.apk"
 
-      - name: 6. 【核心步骤】暴力注入 .so 到已生成的 APK
-        run: |
-          APK_PATH=$(find TV/app/build/outputs/apk -name "*.apk")
-          echo "目标 APK: $APK_PATH"
-          
-          # 进入驱动存放目录
-          cd so_files
-          
-          # 使用 zip 命令将 lib/ 目录强制更新/加入到 APK 中
-          # -u 是更新，-r 是递归
-          zip -ur "../$APK_PATH" lib/
-          
-          echo "✅ 暴力注入完成，已强行将驱动塞入 APK 内部。"
-
-      - name: 7. 上传“焊死”驱动的 APK
+      - name: 6. 强力上传 (使用模糊匹配)
         uses: actions/upload-artifact@v4
         with:
-          name: TVBox-Final-Injected-Arm64
-          path: TV/app/build/outputs/apk/leanback/arm64_v8a/debug/*.apk
+          name: TVBox-Fixed-Path-APK
+          # 使用通配符，只要是 app/build 目录下生成的 apk 全都带走
+          path: TV/app/build/outputs/apk/**/*.apk
+          # 即使没找到也不要让整个任务显示失败，方便看日志
+          if-no-files-found: error
