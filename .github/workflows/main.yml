@@ -34,26 +34,20 @@ jobs:
         run: |
           cd media
           chmod +x ./gradlew
-          # 编译所有模块的 Release 版本
           ./gradlew assembleRelease --no-daemon
-          
-          # 创建 TV 项目的 libs 接收目录
           mkdir -p ../TV/app/libs
-          
-          # 验证并拷贝 AAR
           echo "正在查找编译出的驱动文件..."
           AAR_FILES=$(find . -name "*-release.aar")
           if [ -z "$AAR_FILES" ]; then
-            echo "❌ 错误：在 zhangqun66/media 中没找到 AAR！请检查该仓库代码。"
+            echo "❌ 错误：在 zhangqun66/media 中没找到 AAR！"
             exit 1
           fi
-          
           for aar in $AAR_FILES; do
             cp "$aar" ../TV/app/libs/
             echo "✅ 已拷贝: $(basename $aar)"
           done
 
-      - name: 5. 整合并编译 TV APK (解决冲突)
+      - name: 5. 整合并编译 TV APK
         run: |
           cd TV
           # 修复 Python 路径
@@ -63,22 +57,17 @@ jobs:
           # 开启 Media3 开关
           printf "\ninclude_media3=true\ninclude_ffmpeg=true\n" >> gradle.properties
           
-          # 注入 AAR 依赖并强制排除官方冲突库
+          # 注入 AAR 依赖并排除冲突
           FILE="app/build.gradle"
           if [ -f "$FILE" ]; then
-            # 引入刚才拷贝过来的 AAR
+            # 使用 sed 插入 AAR 引用
             sed -i '/dependencies {/a \    implementation fileTree(dir: "libs", include: ["*.aar"])' "$FILE"
             
-            # 精准排除 androidx.media3 的官方库，确保只用 zhangqun66 编译的版本
-            cat <<EOF >> "$FILE"
-configurations.all {
-    exclude group: 'androidx.media3'
-}
-EOF
+            # 使用 printf 安全地追加排除配置，避免 EOF 缩进问题
+            printf "\nconfigurations.all {\n    exclude group: 'androidx.media3'\n}\n" >> "$FILE"
           fi
           
           chmod +x ./gradlew
-          # 执行编译
           ./gradlew clean assembleDebug --no-daemon
 
       - name: 6. 上传成果物
