@@ -10,41 +10,59 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ checkout TVBox
+      # =========================
+      # 1️⃣ Checkout TVBox 仓库
+      # =========================
       - name: Checkout TVBox
         uses: actions/checkout@v4
         with:
           path: tv
 
-      # 2️⃣ checkout media 源码（必须与 tv 同级）
+      # =========================
+      # 2️⃣ Checkout media 源码仓库（同级）
+      # =========================
       - name: Checkout Media
         uses: actions/checkout@v4
         with:
           repository: zhangqun66/media
           path: media
 
+      # =========================
       # 3️⃣ 设置 JDK 17
+      # =========================
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
-      # 4️⃣ 验证 projects（可选，但建议先跑）
+      # =========================
+      # 4️⃣ 确保 Gradle Wrapper 可执行
+      # =========================
+      - name: Make gradlew executable
+        working-directory: tv
+        run: chmod +x gradlew
+
+      # =========================
+      # 5️⃣ 验证 Gradle projects（确保 media 源码引入成功）
+      # =========================
       - name: Gradle projects check
         working-directory: tv
-        run: |
-          chmod +x gradlew
-          ./gradlew projects
+        run: ./gradlew projects
 
-      # 5️⃣ 编译 TVBox Release
+      # =========================
+      # 6️⃣ 编译 TVBox（Release）
+      # 这里加 --stacktrace 遇到错误方便排查
+      # =========================
       - name: Build TVBox
         working-directory: tv
-        run: |
-          ./gradlew clean
-          ./gradlew assembleRelease
+        env:
+          GRADLE_OPTS: -Xmx4g
+        run: ./gradlew clean assembleRelease --stacktrace
 
-      # 6️⃣ 上传 APK
+      # =========================
+      # 7️⃣ 上传 APK
+      # =========================
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
